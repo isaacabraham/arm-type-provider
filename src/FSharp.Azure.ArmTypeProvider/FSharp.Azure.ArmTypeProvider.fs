@@ -23,6 +23,7 @@ type public ArmTypeProvider(config : TypeProviderConfig) as this =
 
         let staticProp, otherTypes =
             let path = args.[0] :?> string
+            printfn "Reading file %s" path
             path
             |> File.ReadAllText
             |> TemplateRepository.processData

@@ -26,7 +26,7 @@ type ArmParameter =
 
 let toArmType (text:string) =
     match text.ToLower() with    
-    | "string" -> String
+    | "string" | "securestring" -> String
     | "int" -> Int
     | "bool" -> Bool
     | argh -> failwithf "%A" argh
@@ -62,3 +62,4 @@ let getParameters (json:string) =
     deployFile.["parameters"]
     |> Seq.choose (toJProperty >> Option.bind buildArmParameter)
     |> Seq.toList
+
