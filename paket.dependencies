@@ -1,0 +1,8 @@
+source https://www.nuget.org/api/v2
+framework net45
+nuget FSharp.Core
+nuget Microsoft.Azure.Management.ResourceManager prerelease
+nuget Microsoft.Rest.ClientRuntime.Azure.Authentication prerelease
+
+github fsprojects/FSharp.TypeProviders.StarterPack src/ProvidedTypes.fsi
+github fsprojects/FSharp.TypeProviders.StarterPack src/ProvidedTypes.fs
