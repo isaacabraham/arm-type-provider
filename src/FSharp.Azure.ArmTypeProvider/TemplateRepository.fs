@@ -5,6 +5,7 @@ open ProviderImplementation.ProvidedTypes
 open System.Reflection
 open System.Net
 open System
+open System.Text
 
 type GitHubEntry =
     { name : string
@@ -36,9 +37,11 @@ let private buildTemplateType templateName =
         with _ -> None
     let buildDeploy name =
         let fromType = function
-            | AzureDeployParser.ArmParameterType.String -> typeof<string>
-            | AzureDeployParser.ArmParameterType.Int -> typeof<int>
-            | AzureDeployParser.ArmParameterType.Bool -> typeof<bool>
+            | AzureDeployParser.String -> typeof<string>
+            | AzureDeployParser.Int -> typeof<int>
+            | AzureDeployParser.Bool -> typeof<bool>
+            | AzureDeployParser.Array -> typeof<string array>
+
         use wc = new WebClient()
         let deployJson = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/azuredeploy.json" name)
         let parameters =
@@ -46,13 +49,22 @@ let private buildTemplateType templateName =
                 AzureDeployParser.getParameters deployJson
                 |> List.map(fun p ->
                     match p.DefaultValue with
-                    | Some defaultValue -> false, ProvidedParameter(p.Name, fromType p.Type, optionalValue = defaultValue)
-                    | None -> true, ProvidedParameter(p.Name, fromType p.Type))
+                    | Some defaultValue -> false, (p.Description, ProvidedParameter(p.Name, fromType p.Type, optionalValue = defaultValue))
+                    | None -> true, (p.Description, ProvidedParameter(p.Name, fromType p.Type)))
                 |> List.partition fst
             List.map snd (mandatory @ optional)
-        let m = ProvidedMethod("Deploy", parameters, typeof<obj>, InvokeCode = (fun args -> <@@ 10 @@>))
-        m.AddXmlDocDelayed <| fun _ -> "Deploys the template to the specified subscription."
-        m
+
+        let output = ProvidedMethod("Deploy", parameters |> List.map snd, typeof<obj>, InvokeCode = (fun args -> <@@ 10 @@>))
+        output.AddXmlDocDelayed <| fun _ ->
+            let sb = StringBuilder()
+            sb.Append("Deploys the template to the specified subscription.\r\n\r\n") |> ignore
+            for (description, parameter) in parameters do
+                match description with
+                | Some description ->
+                    sb.Append(sprintf "%s: %s\r\n" parameter.Name description) |> ignore
+                | _ -> ()
+            sb.ToString()
+        output
 
     let typeName = templateName.ToCharArray() |> Array.filter Char.IsLetter |> String
     let templateType = ProvidedTypeDefinition(typeName, None, HideObjectMethods = false)
@@ -71,7 +83,7 @@ let private createTemplatesContainer() =
 
 let processData data =
     let templatesType, templatesProp = createTemplatesContainer()
-    let templates = data |> parseJson |> List.take 50 |> List.map (fun x -> buildTemplateType x.name)
+    let templates = data |> parseJson |> List.map (fun x -> buildTemplateType x.name)
     //let templates = [ "101-app-service-certificate-standard" ] |> List.map buildTemplateType
     printfn "Created all templates"
     templates |> List.iter (snd >> templatesType.AddMember)

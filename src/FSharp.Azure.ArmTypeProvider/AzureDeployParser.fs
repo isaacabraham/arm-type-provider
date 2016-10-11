@@ -16,7 +16,7 @@ type ArmParameterKind =
     | Minimum of int
     | Maximum of int
     | AllowedValues of string list
-type ArmParameterType = | String | Int | Bool
+type ArmParameterType = | String | Int | Bool | Array
 type ArmParameter =
     { Name : string
       Type : ArmParameterType
@@ -29,6 +29,7 @@ let toArmType (text:string) =
     | "string" | "securestring" -> String
     | "int" -> Int
     | "bool" -> Bool
+    | "array" -> Array
     | argh -> failwithf "%A" argh
 
 let toParameterKind (parameter:JToken) =
