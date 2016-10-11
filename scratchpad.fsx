@@ -8,5 +8,4 @@ open FSharp.Azure.ArmTypeProvider
 
 type ArmProvider = ArmTypeProvider< @"C:\Users\Isaac\Source\Repos\FSharp.Azure.ArmTypeProvider\data\templateListing.json">
 
-ArmProvider.Templates.``101-function-app-create-dedicated``.Readme
-
+ArmProvider.Templates.

@@ -5,7 +5,7 @@ open ProviderImplementation.ProvidedTypes
 open System.Reflection
 open System.Net
 
-type GitHubTemplate =
+type GitHubEntry =
     { name : string
       ``type`` : string }
 
@@ -19,23 +19,17 @@ let private filterRules =
     |> List.reduce(fun a b data -> a data && b data)
 
 let getData data =
-    JsonConvert.DeserializeObject<GitHubTemplate[]>(data)
+    JsonConvert.DeserializeObject<GitHubEntry[]>(data)
     |> Array.filter filterRules
 
 type ArmTemplate() =
-    member __.Deploy() = ()
+    class end
 
 let private buildTemplateProperties (allTemplates:array<_>) =
-    let templates = ProvidedTypeDefinition("Templates", Some typeof<obj>, HideObjectMethods = true)
-
-    let templateCount = allTemplates.Length
-    let templatesProp = ProvidedProperty("Templates", templates, GetterCode = (fun _ -> <@@ templateCount @@>), IsStatic = true)
-    templatesProp.AddXmlDoc "Collection of ready-made templates to use."
-
+    let templatesType = ProvidedTypeDefinition("Templates", None, HideObjectMethods = true)
     let templateTypes =
-        let buildMember name () =
+        let buildReadme name =
             try
-                printfn "Getting readme for %s" name
                 use wc = new WebClient()
                 let readme = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/README.md" name)
                 let property = ProvidedProperty("Readme", typeof<string>, GetterCode = fun _ -> <@@ readme @@>)
@@ -43,13 +37,28 @@ let private buildTemplateProperties (allTemplates:array<_>) =
                 Some property
             with _ -> None
 
+        let buildDeploy name =
+            let fromType = function
+                | AzureDeployParser.ArmParameterType.String -> typeof<string>
+                | AzureDeployParser.ArmParameterType.Int -> typeof<int>
+                | AzureDeployParser.ArmParameterType.Bool -> typeof<bool>
+
+            use wc = new WebClient()
+            let deployJson = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/azuredeploy.json" name)
+            let parameters =
+                AzureDeployParser.getParameters deployJson
+                |> Seq.map(fun p -> ProvidedParameter(p.Name, fromType p.Type, false))
+                |> Seq.toList
+            ProvidedMethod("Deploy", parameters, typeof<obj>)            
+
         [ for template in allTemplates ->
-            let templateType = ProvidedTypeDefinition("template" + template.name, Some (typeof<ArmTemplate>))
-            templateType.AddMembersDelayed(buildMember template.name >> Option.toList)
-            let prop = ProvidedProperty(template.name, templateType, GetterCode = fun _ -> <@@ ArmTemplate() @@>)
-            templates.AddMember prop
+            let templateType = ProvidedTypeDefinition(template.name, Some (typeof<ArmTemplate>))
+            templateType.AddMembersDelayed(fun _ -> List.choose id [ buildReadme template.name |> Option.map (fun x -> x :> MemberInfo); Some(buildDeploy template.name :> MemberInfo) ])           
+            templatesType.AddMember(ProvidedProperty(template.name, templateType, GetterCode = fun _ -> <@@ ArmTemplate() @@>))
             templateType :> MemberInfo ]
 
-    templatesProp :> MemberInfo, [ templates :> MemberInfo ] @ templateTypes
+    let templatesProp = ProvidedProperty("Templates", templatesType, GetterCode = (fun _ -> <@@ () @@>), IsStatic = true)
+    templatesProp.AddXmlDoc "Collection of ready-made templates to use."
+    templatesProp :> MemberInfo, [ templatesType :> MemberInfo ] @ templateTypes
 
 let processData = getData >> buildTemplateProperties
