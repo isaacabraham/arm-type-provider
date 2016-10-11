@@ -24,13 +24,13 @@ let parseJson data =
     |> Seq.filter filterRules
     |> Seq.toList
 
-let private buildTemplateType template =
-    printfn "Creating template %s" template.name
+let private buildTemplateType templateName =
+    printfn "Creating template %s" templateName
     let buildReadme name =
         try
             use wc = new WebClient()
             let readme = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/README.md" name)
-            let property = ProvidedProperty("Readme", typeof<string>, GetterCode = fun _ -> <@@ readme @@>)
+            let property = ProvidedProperty("Readme", typeof<string>, GetterCode = (fun args -> <@@ readme @@>))
             property.AddXmlDoc readme
             Some property
         with _ -> None
@@ -46,20 +46,22 @@ let private buildTemplateType template =
                 AzureDeployParser.getParameters deployJson
                 |> List.map(fun p ->
                     match p.DefaultValue with
-                    | Some defaultValue -> false, ProvidedParameter(p.Name, fromType p.Type, false, defaultValue)
-                    | None -> true, ProvidedParameter(p.Name, fromType p.Type, false))
+                    | Some defaultValue -> false, ProvidedParameter(p.Name, fromType p.Type, optionalValue = defaultValue)
+                    | None -> true, ProvidedParameter(p.Name, fromType p.Type))
                 |> List.partition fst
             List.map snd (mandatory @ optional)
-        ProvidedMethod("Deploy", parameters, typeof<obj>, InvokeCode = fun _ -> <@@ () @@>)
+        let m = ProvidedMethod("Deploy", parameters, typeof<obj>, InvokeCode = (fun args -> <@@ 10 @@>))
+        m.AddXmlDocDelayed <| fun _ -> "Deploys the template to the specified subscription."
+        m
 
-    let typeName = template.name.ToCharArray() |> Array.filter Char.IsLetter |> String
-    let templateType = ProvidedTypeDefinition(typeName, None, HideObjectMethods = true)
+    let typeName = templateName.ToCharArray() |> Array.filter Char.IsLetter |> String
+    let templateType = ProvidedTypeDefinition(typeName, None, HideObjectMethods = false)
     templateType.AddMembersDelayed(fun _ ->
-        printfn "Building properties for %s" template.name
+        printfn "Building properties for %s" templateName
         List.choose id [
-            buildReadme template.name |> Option.map (fun x -> x :> MemberInfo)
-            buildDeploy template.name :> MemberInfo |> Some ])
-    templateType, ProvidedProperty(template.name, templateType, GetterCode = fun _ -> <@@ () @@>)
+            buildReadme templateName |> Option.map (fun x -> x :> MemberInfo)
+            buildDeploy templateName :> MemberInfo |> Some ])
+    templateType, ProvidedProperty(templateName, templateType, GetterCode = fun _ -> <@@ () @@>)
 
 let private createTemplatesContainer() =
     let templatesType = ProvidedTypeDefinition("Templates", None, HideObjectMethods = true)
@@ -69,7 +71,8 @@ let private createTemplatesContainer() =
 
 let processData data =
     let templatesType, templatesProp = createTemplatesContainer()
-    let templates = data |> parseJson |> List.take 50 |> List.map buildTemplateType
+    let templates = data |> parseJson |> List.take 50 |> List.map (fun x -> buildTemplateType x.name)
+    //let templates = [ "101-app-service-certificate-standard" ] |> List.map buildTemplateType
     printfn "Created all templates"
     templates |> List.iter (snd >> templatesType.AddMember)
     templatesProp :> MemberInfo, templatesType :: (List.map fst templates)

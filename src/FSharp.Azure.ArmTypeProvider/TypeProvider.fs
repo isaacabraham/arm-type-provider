@@ -14,7 +14,7 @@ type public ArmTypeProvider(config : TypeProviderConfig) as this =
 
     let namespaceName = "FSharp.Azure.ArmTypeProvider"
     let thisAssembly = Assembly.GetExecutingAssembly()
-    let armProvidedType = ProvidedTypeDefinition(thisAssembly, namespaceName, "ArmTypeProvider", baseType = Some typeof<obj>)
+    let armProvidedType = ProvidedTypeDefinition(thisAssembly, namespaceName, "ArmProvider", baseType = Some typeof<obj>)
 
     let buildTypes (typeName : string) (args : obj []) =
         // Create the top level property
@@ -31,19 +31,13 @@ type public ArmTypeProvider(config : TypeProviderConfig) as this =
         typeProviderForAccount.AddMember staticProp
 
         let generatedTypes = ProvidedTypeDefinition("GeneratedTypes", Some typeof<obj>)
+        generatedTypes.AddMembers otherTypes
         typeProviderForAccount.AddMember generatedTypes
-        otherTypes |> generatedTypes.AddMembers
         
         typeProviderForAccount
     
-    // Parameterising the provider
     let parameters =
-        [ ProvidedStaticParameter("jsonPath", typeof<string>, String.Empty)
-        //   ProvidedStaticParameter("accountName", typeof<string>, String.Empty)
-        //   ProvidedStaticParameter("accountKey", typeof<string>, String.Empty)
-        //   ProvidedStaticParameter("connectionStringName", typeof<string>, String.Empty)
-        //   ProvidedStaticParameter("configFileName", typeof<string>, "app.config")
-        ]
+        [ ProvidedStaticParameter("jsonPath", typeof<string>, String.Empty) ]
     
     let memoize func =
         let cache = Dictionary()
