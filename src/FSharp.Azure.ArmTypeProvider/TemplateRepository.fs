@@ -6,6 +6,7 @@ open System.Reflection
 open System.Net
 open System
 open System.Text
+open AzureDeployParser
 
 type GitHubEntry =
     { name : string
@@ -25,54 +26,74 @@ let parseJson data =
     |> Seq.filter filterRules
     |> Seq.toList
 
-let private buildTemplateType templateName =
-    printfn "Creating template %s" templateName
-    let buildReadme name =
+let private buildTemplateType (templateName:string) =
+    let readmeProp() =
         try
             use wc = new WebClient()
-            let readme = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/README.md" name)
+            let readme = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/README.md" templateName)
             let property = ProvidedProperty("Readme", typeof<string>, GetterCode = (fun args -> <@@ readme @@>))
             property.AddXmlDoc readme
             Some property
         with _ -> None
-    let buildDeploy name =
+
+    let deployMethod() =
+        let buildTypedParameter (parameterName:string) values =
+            let parameterName =
+                let chars = parameterName.ToCharArray()
+                chars.[0] <- Char.ToUpper chars.[0]
+                String chars
+            let parameterType = ProvidedTypeDefinition(parameterName, None, HideObjectMethods = true)
+            for value in values do
+                parameterType.AddMember(ProvidedProperty(value, parameterType, IsStatic = true, GetterCode = (fun _ -> <@@ () @@>)))
+            parameterType
+
         let fromType = function
-            | AzureDeployParser.String -> typeof<string>
-            | AzureDeployParser.Int -> typeof<int>
-            | AzureDeployParser.Bool -> typeof<bool>
-            | AzureDeployParser.Array -> typeof<string array>
+            | { ParameterKind = (Some (AllowedValues values)) } as parameter ->
+                buildTypedParameter parameter.Name values :> Type
+            | { ParameterType = StringParam } -> typeof<string>
+            | { ParameterType = IntParam } -> typeof<int>
+            | { ParameterType = BoolParam } -> typeof<bool>
+            | { ParameterType = ArrayParam } -> typeof<string array>
 
         use wc = new WebClient()
-        let deployJson = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/azuredeploy.json" name)
+        let deployJson = wc.DownloadString(sprintf "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/%s/azuredeploy.json" templateName)
         let parameters =
             let mandatory, optional =
                 AzureDeployParser.getParameters deployJson
                 |> List.map(fun p ->
+                    let parameterType = fromType p
                     match p.DefaultValue with
-                    | Some defaultValue -> false, (p.Description, ProvidedParameter(p.Name, fromType p.Type, optionalValue = defaultValue))
-                    | None -> true, (p.Description, ProvidedParameter(p.Name, fromType p.Type)))
+                    | Some defaultValue -> false, (p.Description, ProvidedParameter(p.Name, parameterType, optionalValue = defaultValue))
+                    | None -> true, (p.Description, ProvidedParameter(p.Name, parameterType)))
                 |> List.partition fst
             List.map snd (mandatory @ optional)
 
-        let output = ProvidedMethod("Deploy", parameters |> List.map snd, typeof<obj>, InvokeCode = (fun args -> <@@ 10 @@>))
-        output.AddXmlDocDelayed <| fun _ ->
+        let generatedParameterTypes =
+            parameters
+            |> List.choose(fun (_, p) ->
+                match p.ParameterType with
+                | :? ProvidedTypeDefinition as ptd -> Some ptd
+                | _ -> None)
+
+        let providedMethod = ProvidedMethod("Deploy", parameters |> List.map snd, typeof<obj>, InvokeCode = (fun args -> <@@ 10 @@>))
+        providedMethod.AddXmlDocDelayed <| fun _ ->
             let sb = StringBuilder()
-            sb.Append("Deploys the template to the specified subscription.\r\n\r\n") |> ignore
+            sb.AppendLine("Deploys the template to the specified subscription.") |> ignore
             for (description, parameter) in parameters do
                 match description with
-                | Some description ->
-                    sb.Append(sprintf "%s: %s\r\n" parameter.Name description) |> ignore
+                | Some description -> sb.AppendLine(sprintf "%s: %s" parameter.Name description) |> ignore
                 | _ -> ()
             sb.ToString()
-        output
+        
+        providedMethod, generatedParameterTypes
 
-    let typeName = templateName.ToCharArray() |> Array.filter Char.IsLetter |> String
+    let typeName = templateName
     let templateType = ProvidedTypeDefinition(typeName, None, HideObjectMethods = false)
     templateType.AddMembersDelayed(fun _ ->
-        printfn "Building properties for %s" templateName
-        List.choose id [
-            buildReadme templateName |> Option.map (fun x -> x :> MemberInfo)
-            buildDeploy templateName :> MemberInfo |> Some ])
+        let deployMethod, customParameterTypes = deployMethod()
+        let readmeProp = readmeProp() |> Option.map (fun x -> x :> MemberInfo) |> Option.toList
+        deployMethod :> MemberInfo :: (customParameterTypes |> List.map (fun x -> x :> MemberInfo)) @ readmeProp)
+
     templateType, ProvidedProperty(templateName, templateType, GetterCode = fun _ -> <@@ () @@>)
 
 let private createTemplatesContainer() =
@@ -84,7 +105,5 @@ let private createTemplatesContainer() =
 let processData data =
     let templatesType, templatesProp = createTemplatesContainer()
     let templates = data |> parseJson |> List.map (fun x -> buildTemplateType x.name)
-    //let templates = [ "101-app-service-certificate-standard" ] |> List.map buildTemplateType
-    printfn "Created all templates"
     templates |> List.iter (snd >> templatesType.AddMember)
     templatesProp :> MemberInfo, templatesType :: (List.map fst templates)

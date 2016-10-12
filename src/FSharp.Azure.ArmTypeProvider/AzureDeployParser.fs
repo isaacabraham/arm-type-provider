@@ -16,20 +16,20 @@ type ArmParameterKind =
     | Minimum of int
     | Maximum of int
     | AllowedValues of string list
-type ArmParameterType = | String | Int | Bool | Array
+type ArmParameterType = | StringParam | IntParam | BoolParam | ArrayParam
 type ArmParameter =
     { Name : string
-      Type : ArmParameterType
+      ParameterType : ArmParameterType
       DefaultValue : string option
-      ArmParameterType : ArmParameterKind option
+      ParameterKind : ArmParameterKind option
       Description : string option }
 
 let toArmType (text:string) =
     match text.ToLower() with    
-    | "string" | "securestring" -> String
-    | "int" -> Int
-    | "bool" -> Bool
-    | "array" -> Array
+    | "string" | "securestring" -> StringParam
+    | "int" -> IntParam
+    | "bool" -> BoolParam
+    | "array" -> ArrayParam
     | argh -> failwithf "%A" argh
 
 let toParameterKind (parameter:JToken) =
@@ -51,9 +51,9 @@ let buildArmParameter (parameter:JProperty) =
     match parameter.Children() |> Seq.toList with
     | [ node ] ->
         { Name = parameter.Name
-          Type = match node.["type"] |> safeS with | Some x -> x |> toArmType | None -> failwith "Argh - no type!"
+          ParameterType = match node.["type"] |> safeS with | Some x -> x |> toArmType | None -> failwith "Argh - no type!"
           DefaultValue = safeS node.["defaultValue"]
-          ArmParameterType = node |> toParameterKind
+          ParameterKind = node |> toParameterKind
           Description = node.["metadata"] |> safe |> chain safeS "description" }
         |> Some
     | _ -> None

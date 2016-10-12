@@ -30,7 +30,7 @@ type public ArmTypeProvider(config : TypeProviderConfig) as this =
 
         typeProviderForAccount.AddMember staticProp
 
-        let generatedTypes = ProvidedTypeDefinition("GeneratedTypes", Some typeof<obj>)
+        let generatedTypes = ProvidedTypeDefinition("Parameters", Some typeof<obj>)
         generatedTypes.AddMembers otherTypes
         typeProviderForAccount.AddMember generatedTypes
         
